@@ -2,9 +2,9 @@
 
 namespace Cache;
 
-use Cache\Interface\Key;
+use Cache\Interface\KeyInterface;
 
-class StashKey implements Key
+class Key implements KeyInterface
 {
     private const SEP = '/';
 
@@ -24,16 +24,17 @@ class StashKey implements Key
     private string $keyStr;          // encoded full key
 
     public function __construct(
-        string $domain,
-        string $facet,
+        string           $domain,
+        string           $facet,
         string|int|array $id,
-        ?string $schemaVersion = null,
-        ?string $locale = null,
-    ) {
-        $this->domain        = $this->norm($domain);
-        $this->facet         = $this->norm($facet);
+        ?string          $schemaVersion = null,
+        ?string          $locale = null,
+    )
+    {
+        $this->domain = $this->norm($domain);
+        $this->facet = $this->norm($facet);
         $this->schemaVersion = ($schemaVersion !== null && $schemaVersion !== '') ? $this->norm($schemaVersion) : null;
-        $this->locale        = ($locale        !== null && $locale        !== '') ? $this->norm($locale)        : null;
+        $this->locale = ($locale !== null && $locale !== '') ? $this->norm($locale) : null;
 
         // raw id and its storage-ready string form
         if (is_array($id)) {
@@ -46,8 +47,12 @@ class StashKey implements Key
 
         // prefix segments
         $this->prefixSegments = [$this->domain, $this->facet];
-        if ($this->schemaVersion !== null) { $this->prefixSegments[] = $this->schemaVersion; }
-        if ($this->locale        !== null) { $this->prefixSegments[] = $this->locale; }
+        if ($this->schemaVersion !== null) {
+            $this->prefixSegments[] = $this->schemaVersion;
+        }
+        if ($this->locale !== null) {
+            $this->prefixSegments[] = $this->locale;
+        }
         $this->fullSegments = $this->prefixSegments;
         $this->fullSegments[] = $this->idStr;
 
@@ -57,25 +62,65 @@ class StashKey implements Key
             $encoded[] = rawurlencode($seg);
         }
         $this->prefixStr = implode(self::SEP, $encoded);
-        $this->keyStr    = $this->prefixStr . self::SEP . rawurlencode($this->idStr);
+        $this->keyStr = $this->prefixStr . self::SEP . rawurlencode($this->idStr);
     }
 
     // --- Key ---
 
-    public function toString(): string { return $this->keyStr; }
-    public function __toString(): string { return $this->keyStr; }
+    public function toString(): string
+    {
+        return $this->keyStr;
+    }
 
-    public function domain(): string { return $this->domain; }
-    public function facet(): string { return $this->facet; }
-    public function schemaVersion(): ?string { return $this->schemaVersion; }
-    public function locale(): ?string { return $this->locale; }
+    public function __toString(): string
+    {
+        return $this->keyStr;
+    }
 
-    public function id(): string|array { return $this->idRaw; }
-    public function idString(): string { return $this->idStr; }
+    public function domain(): string
+    {
+        return $this->domain;
+    }
 
-    public function prefixString(): string { return $this->prefixStr; }
-    public function segments(): array { return $this->fullSegments; }
-    public function prefixSegments(): array { return $this->prefixSegments; }
+    public function facet(): string
+    {
+        return $this->facet;
+    }
+
+    public function schemaVersion(): ?string
+    {
+        return $this->schemaVersion;
+    }
+
+    public function locale(): ?string
+    {
+        return $this->locale;
+    }
+
+    public function id(): string|array
+    {
+        return $this->idRaw;
+    }
+
+    public function idString(): string
+    {
+        return $this->idStr;
+    }
+
+    public function prefixString(): string
+    {
+        return $this->prefixStr;
+    }
+
+    public function segments(): array
+    {
+        return $this->fullSegments;
+    }
+
+    public function prefixSegments(): array
+    {
+        return $this->prefixSegments;
+    }
 
     // --- Extensibility hook ---
 
@@ -87,11 +132,11 @@ class StashKey implements Key
     protected function idStringify(array $id): string
     {
         $json = json_encode($id, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $b64  = base64_encode((string)$json);
+        $b64 = base64_encode((string)$json);
         // base64url (explicit, no array_map shortcuts)
-        $b64  = str_replace('+', '-', $b64);
-        $b64  = str_replace('/', '_', $b64);
-        $b64  = rtrim($b64, '=');
+        $b64 = str_replace('+', '-', $b64);
+        $b64 = str_replace('/', '_', $b64);
+        $b64 = rtrim($b64, '=');
         return 'j:' . $b64;
     }
 

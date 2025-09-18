@@ -2,16 +2,16 @@
 
 namespace Cache;
 
-use Cache\Interface\Jitter;
-use Cache\Interface\Key;
+use Cache\Interface\JitterInterface;
+use Cache\Interface\KeyInterface;
 
-final class DefaultJitter implements Jitter
+final class DefaultJitter implements JitterInterface
 {
     public function __construct(private int $percent = 15)
     {
     }
 
-    public function apply(int $ttlSec, Key $key): int
+    public function apply(int $ttlSec, KeyInterface $key): int
     {
         // Deterministic jitter based on key hash in range [-delta, +delta].
         $delta = max(0, (int)floor($ttlSec * $this->percent / 100));

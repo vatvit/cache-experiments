@@ -2,17 +2,12 @@
 
 namespace Cache;
 
-use Cache\Interface\Loader;
-use Cache\Interface\Key;
+use Cache\Interface\KeyInterface;
+use Cache\Interface\LoaderInterface;
 
-final class CallableLoader implements Loader
+final class CallableLoader implements LoaderInterface
 {
-    /** @param callable(Key):mixed $fn */
-    public function __construct(private \Closure $fn)
-    {
-    }
-
-    public function resolve(Key $key): mixed
+    public function resolve(KeyInterface $key): mixed
     {
         return ($this->fn)($key);
     }

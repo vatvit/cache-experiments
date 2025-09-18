@@ -62,18 +62,6 @@ final class ValueResult implements ValueResultInterface
         return $this->value;
     }
 
-    public function valueOr(mixed $default): mixed
-    {
-        if (!$this->isMiss()) {
-            return $this->value;
-        }
-        if (is_callable($default)) {
-            /** @var callable $default */
-            return $default();
-        }
-        return $default;
-    }
-
     public function createdAt(): ?int
     {
         return $this->createdAt;

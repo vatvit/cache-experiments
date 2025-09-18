@@ -16,9 +16,6 @@ interface ValueResultInterface
     /** Returns the value or throws if miss. */
     public function value(): mixed;
 
-    /** Returns the value; if miss, returns $default (or the result of calling it when $default is callable). */
-    public function valueOr(mixed $default): mixed;
-
     /** Creation timestamp of the cached payload (unix seconds) or null for miss. */
     public function createdAt(): ?int;
 

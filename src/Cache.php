@@ -13,7 +13,6 @@ use Cache\Interface\MetricsInterface;
 use Cache\Interface\ValueResultInterface;
 use Stash\Invalidation;
 use Stash\Interfaces\PoolInterface as StashPoolInterface;
-use Stash\Interfaces\ItemInterface as StashItemInterface;
 
 class Cache implements CacheInterface, PsrPoolAccessInterface
 {
