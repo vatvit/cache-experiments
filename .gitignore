@@ -1,0 +1,35 @@
+# Dependencies
+/vendor/
+
+# Composer files
+composer.phar
+composer.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# PHP
+*.log
+*.tmp
+*.temp
+*.cache
+
+# PHPUnit
+.phpunit.result.cache
+/phpunit.xml
+
+# Coverage reports
+coverage/
+clover.xml
