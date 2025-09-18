@@ -16,19 +16,13 @@ echo "✅ Docker is running"
 # Create a PHP container to run Composer
 echo "🔧 Setting up PHP environment with Docker..."
 
-# Run Composer install using official Composer Docker image
+# Install Composer dependencies using PHP CLI Docker container
 echo "📦 Installing Composer dependencies..."
-docker run --rm -v "$(pwd)":/app -w /app composer:latest install --no-dev --optimize-autoloader
-
-# Optional: Run Composer install with dev dependencies for development
-echo "🛠️  Installing development dependencies..."
-docker run --rm -v "$(pwd)":/app -w /app composer:latest install --optimize-autoloader
+docker run --rm \
+    -v "$(pwd)":/app \
+    -w /app \
+    php:8.4-cli \
+    sh -c "apt-get update && apt-get install -y git unzip && curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer && composer install"
 
 echo "✅ Setup completed successfully!"
 echo "🚀 Your PHP project is ready to use."
-
-# Display useful information
-echo ""
-echo "📋 Next steps:"
-echo "   - Run tests: docker run --rm -v \"\$(pwd)\":/app -w /app php:8.0-cli vendor/bin/phpunit"
-echo "   - Or use: docker run --rm -v \"\$(pwd)\":/app -w /app composer:latest run-script test"

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Vendor\PackageName\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Vendor\PackageName\ExampleClass;
+use Cache\ExampleClass;
 
 class ExampleClassTest extends TestCase
 {

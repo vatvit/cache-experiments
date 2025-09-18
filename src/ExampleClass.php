@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Vendor\PackageName;
+namespace Cache;
 
 class ExampleClass
 {

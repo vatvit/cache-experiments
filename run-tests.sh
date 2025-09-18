@@ -26,7 +26,7 @@ echo "🚀 Executing PHPUnit tests..."
 docker run --rm \
     -v "$(pwd)":/app \
     -w /app \
-    php:8.0-cli \
+    php:8.4-cli \
     vendor/bin/phpunit
 
 echo "✅ Tests completed!"
