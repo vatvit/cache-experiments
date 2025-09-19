@@ -1,10 +1,18 @@
-# Package Name
+# Advanced Cache Library
 
-A brief description of what this package does.
+A high-performance PHP cache library with stale-while-revalidate pattern, async operations, and cache stampede prevention.
+
+## Features
+
+- **Stale-while-revalidate**: Serve stale data while computing fresh values in background
+- **Cache stampede prevention**: Built-in jitter and leader/follower pattern
+- **Async operations**: Non-blocking cache invalidation and refresh
+- **Structured keys**: Domain-based cache keys with versioning and localization
+- **Redis backend**: Built on top of Stash cache with Redis support
+- **Batch operations**: Efficient bulk get/invalidate operations
+- **Flexible invalidation**: Exact key or prefix-based invalidation strategies
 
 ## Installation
-
-You can install the package via composer:
 
 ```bash
 composer require vendor/package-name
@@ -15,9 +23,46 @@ composer require vendor/package-name
 ```php
 <?php
 
-use Vendor\PackageName\YourClass;
+use Cache\Cache;
+use Cache\Key;
+use Cache\CallableLoader;
+use Cache\DefaultJitter;
+use Stash\Pool;
+use Stash\Driver\Redis;
 
-$instance = new YourClass();
+// Setup Redis and cache
+$redis = new \Redis();
+$driver = new Redis(['connection' => $redis]);
+$pool = new Pool($driver);
+
+$cache = new Cache(
+    $pool,
+    new CallableLoader(function($key) { /* your loader logic */ }),
+    $hardTtlSec = 3600,      // Hard TTL
+    $precomputeSec = 60,     // Precompute window
+    new DefaultJitter(15)    // Jitter for stampede prevention
+);
+
+// Create structured cache keys
+$key = new Key(
+    domain: 'product',
+    facet: 'top-sellers',
+    id: ['category' => 456, 'price' => 1000],
+    version: 2,
+    locale: 'en'
+);
+
+// Get cached value
+$result = $cache->get($key);
+
+$cacheProduct->refresh($key); // async by default
+
+$cacheProduct->put($key, $value);
+
+$cacheProduct->invalidateExact($key); // invalidate exact key only. do not invalidate hierarchical keys.
+
+$cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
+
 ```
 
 ## Testing

@@ -27,3 +27,11 @@ $version = 2;
 $locale = 'en';
 $key = new \Cache\Key($domain, $facet, $id, $version, $locale);
 $value = $cacheProduct->get($key);
+
+$cacheProduct->refresh($key); // async by default
+
+$cacheProduct->put($key, $value);
+
+$cacheProduct->invalidateExact($key); // invalidate exact key only. do not invalidate hierarchical keys.
+
+$cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
