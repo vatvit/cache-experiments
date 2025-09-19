@@ -1,17 +1,29 @@
 <?php
 
-// обычный путь — доменные дефолты из конструктора/движка
-$p = $catalogCache->getProduct($id);
+use Cache\CallableLoader;
 
-// точечный оверрайд TTL/режимов только для этого вызова
-$strict = GetPolicy::create(hardSec: 3600, softSec: 120)
-    ->withRefreshMode(RefreshMode::SYNC)
-    ->withFailMode(FailMode::CLOSED);
+$redis = new \Redis();
 
-$p2 = $catalogCache->getProduct($id, $strict);
+$myRedisDriver = new \Stash\Driver\Redis(['connection' => $redis]);
 
-// инвалидация «освежением» (по умолчанию REFRESH)
-$catalogCache->invalidateProduct($id);
+$stashPool = new \Stash\Pool($myRedisDriver);
+$stashPool->setItemClass(\Cache\MyItem::class);
 
-// обход кэша
-$pRaw = $catalogCache->raw()->byId($id);
+$cacheProduct = new \Cache\Cache(
+    $stashPool,
+    /** Minimal async publisher contract (wire to RabbitMQ/Kafka/SQS, etc.). */
+    new CallableLoader(function ($key) {}),
+    $hardTtlSec = 3600,
+    $precomputeSec = 60,         // seconds BEFORE hard TTL to precompute (soft window)
+    new \Cache\DefaultJitter(15)
+);
+
+// Usage example
+
+$domain = 'product';
+$facet = 'top-sellers';
+$id = ['category' => 456, 'price' => 1000, 'brand' => 'Apple'];
+$version = 2;
+$locale = 'en';
+$key = new \Cache\Key($domain, $facet, $id, $version, $locale);
+$value = $cacheProduct->get($key);

@@ -22,7 +22,7 @@ docker run --rm \
     -v "$(pwd)":/app \
     -w /app \
     php:8.4-cli \
-    sh -c "apt-get update && apt-get install -y git unzip && curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer && composer install"
+    sh -c "apt-get update && apt-get install -y git unzip && curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer && composer install --ignore-platform-reqs"
 
 echo "✅ Setup completed successfully!"
 echo "🚀 Your PHP project is ready to use."

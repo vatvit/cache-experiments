@@ -2,7 +2,7 @@
 
 namespace Cache\Interface;
 
-interface KeyInterface
+interface KeyInterface extends \Stringable
 {
     public function toString(): string;              // storage-ready: "prefix/idString"
 

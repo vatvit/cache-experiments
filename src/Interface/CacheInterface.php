@@ -2,7 +2,7 @@
 
 namespace Cache\Interface;
 
-use Cache\InvalidateMode;
+use Cache\SyncMode;
 
 interface CacheInterface
 {
@@ -12,7 +12,9 @@ interface CacheInterface
 
     public function put(KeyInterface $key, mixed $value): void;
 
-    public function invalidate(KeyPrefixInterface|KeyInterface|array $selectors, InvalidateMode $mode = InvalidateMode::DEFAULT): void;
+    public function invalidate(KeyPrefixInterface|KeyInterface|array $selectors, SyncMode $mode = SyncMode::ASYNC): void;
 
-    public function invalidateExact(KeyInterface|array $keys, InvalidateMode $mode = InvalidateMode::DEFAULT): void;
+    public function invalidateExact(KeyInterface|array $keys, SyncMode $mode = SyncMode::ASYNC): void;
+
+    public function refresh(KeyInterface|array $keys, SyncMode $mode = SyncMode::ASYNC): void;
 }

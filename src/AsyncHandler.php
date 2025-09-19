@@ -1,0 +1,29 @@
+<?php
+
+namespace Cache;
+
+class AsyncHandler {
+
+    public function __construct(
+        private Cache $cache,
+    ) {}
+
+    public function handleInvalidation(InvalidationEvent $event): void
+    {
+        $key = $event['key'];
+        $exact = $event['exact'];
+
+        if ($exact) {
+            $this->cache->invalidateExact($key, SyncMode::SYNC);
+        } else {
+            $this->cache->invalidate($key, SyncMode::SYNC);
+        }
+    }
+
+    public function handleRefresh(InvalidationEvent $event): void
+    {
+        $key = $event['key'];
+
+        $this->cache->refresh($key, SyncMode::SYNC);
+    }
+}
