@@ -1,382 +1,416 @@
 diff --git a/.output.txt b/.output.txt
 deleted file mode 100644
-index 5068e42..0000000
+index c0317d5..0000000
 --- a/.output.txt
 +++ /dev/null
-@@ -1,284 +0,0 @@
--diff --git a/src/AsyncEvent.php b/src/AsyncEvent.php
--index b114e57..b7ef7ac 100644
----- a/src/AsyncEvent.php
--+++ b/src/AsyncEvent.php
--@@ -4,7 +4,7 @@ namespace Cache;
--
-- use Cache\Interface\KeyInterface;
--
---class InvalidationEvent extends \stdClass
--+class AsyncEvent
-- {
--     public function __construct(
--         public KeyInterface $key,
--diff --git a/src/AsyncHandler.php b/src/AsyncHandler.php
--index 3339785..3759d2f 100644
----- a/src/AsyncHandler.php
--+++ b/src/AsyncHandler.php
--@@ -8,10 +8,10 @@ class AsyncHandler {
--         private Cache $cache,
--     ) {}
--
---    public function handleInvalidation(InvalidationEvent $event): void
--+    public function handleInvalidation(AsyncEvent $event): void
--     {
---        $key = $event['key'];
---        $exact = $event['exact'];
--+        $key = $event->key;
--+        $exact = $event->exact;
--
--         if ($exact) {
--             $this->cache->invalidateExact($key, SyncMode::SYNC);
--@@ -20,9 +20,9 @@ class AsyncHandler {
--         }
--     }
--
---    public function handleRefresh(InvalidationEvent $event): void
--+    public function handleRefresh(AsyncEvent $event): void
--     {
---        $key = $event['key'];
--+        $key = $event->key;
--
--         $this->cache->refresh($key, SyncMode::SYNC);
--     }
--diff --git a/src/Cache.php b/src/Cache.php
--index 8ef47ec..0efe3b3 100644
----- a/src/Cache.php
--+++ b/src/Cache.php
--@@ -18,14 +18,13 @@ use Stash\Invalidation;
-- class Cache implements CacheInterface, PsrPoolAccessInterface
-- {
--     public function __construct(
---        private StashPoolInterface        $pool,
---        private LoaderInterface           $loader,
---        private int                       $hardTtlSec,
---        private int                       $precomputeSec,         // seconds BEFORE hard TTL to precompute (soft window)
---        private JitterInterface           $jitter,
---        private EventDispatcherInterface|null  $eventDispatcher = null,
--+        private StashPoolInterface            $pool,
--+        private LoaderInterface               $loader,
--+        private int                           $hardTtlSec,
--+        private int                           $precomputeSec,         // seconds BEFORE hard TTL to precompute (soft window)
--+        private JitterInterface               $jitter,
--+        private EventDispatcherInterface|null $eventDispatcher = null,
--         private MetricsInterface|null         $metrics = null,
---        private \Psr\Log\LoggerInterface|null $logger = null,
--     )
--     {
--         if ($hardTtlSec < 1) throw new \InvalidArgumentException('hardTtlSec must be >= 1');
--@@ -38,41 +37,83 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--     {
--         $item = $this->pool->getItem($key->toString());
--
---        // 1) precompute: start regeneration pre-expiry; isHit() becomes false inside the soft window
---        $item->setInvalidationMethod(Invalidation::PRECOMPUTE, $this->precomputeSec);
+@@ -1,382 +0,0 @@
+-diff --git a/.output.txt b/.output.txt
+-deleted file mode 100644
+-index 5068e42..0000000
+---- a/.output.txt
+-+++ /dev/null
+-@@ -1,284 +0,0 @@
+--diff --git a/src/AsyncEvent.php b/src/AsyncEvent.php
+--index b114e57..b7ef7ac 100644
+----- a/src/AsyncEvent.php
+--+++ b/src/AsyncEvent.php
+--@@ -4,7 +4,7 @@ namespace Cache;
 --
---        $value = $item->get();
---        if ($item->isHit()) {
---            [$createdAt, $softAt] = $this->timestampsFromItem($item);
---            $this->metrics?->inc('cache_hit', ['state' => 'fresh']);
---            return ValueResult::hit($value, $createdAt, $softAt);
--+        // 1) fast path: fresh hit
--+        if ($result = $this->tryFreshHit($item)) {
--+            return $result;
--         }
--
---        // 2) single-flight: try to become the leader
--+        // 2) single-flight: become the leader and recompute
--         $won = $item->lock();
--         if ($won) {
--             try {
---                $loaded = $this->loader->resolve($key);
---                $this->save($key, $loaded); // sets hard TTL (with jitter) and stores value
---                $this->metrics?->inc('cache_fill');
+-- use Cache\Interface\KeyInterface;
 --
---                // recompute times deterministically after save
---                $now = time();
---                $hard = $now + $this->hardTtlSec;
---                $soft = $hard - $this->precomputeSec;
---                if ($soft < $now) {
---                    $soft = $now;
---                }
+---class InvalidationEvent extends \stdClass
+--+class AsyncEvent
+-- {
+--     public function __construct(
+--         public KeyInterface $key,
+--diff --git a/src/AsyncHandler.php b/src/AsyncHandler.php
+--index 3339785..3759d2f 100644
+----- a/src/AsyncHandler.php
+--+++ b/src/AsyncHandler.php
+--@@ -8,10 +8,10 @@ class AsyncHandler {
+--         private Cache $cache,
+--     ) {}
 --
---                return ValueResult::hit($loaded, $now, $soft);
--+                return $this->leaderComputeAndSave($key);
--             } finally {
--                 // lock is released when $item is out of scope (Stash frees it with Item lifecycle)
--                 unset($item);
--             }
--         }
--
---        // 3) follower path: someone else is rebuilding — serve stale or briefly wait
---        // a) try to serve STALE while leader holds the lock
--+        // 3) follower path: serve stale
--+        if ($result = $this->tryFollowerServeStale($key)) {
--+            return $result;
--+        }
--+
--+        // 4) follower path: wait for leader to finish
--+        if ($result = $this->tryFollowerWaitFresh($key)) {
--+            return $result;
--+        }
--+
--+        // 5) last resort: fail-open compute or miss
--+        return $this->failOpenOrMiss($key);
--+    }
--+
--+    /** Extract createdAt and soft boundary from Stash item. */
--+    private function timestampsFromItem(ItemInterface $item): array
--+    {
--+        $createdAt = $item->getCreation() ? $item->getCreation()->getTimestamp() : time();
--+        $expiresAt = $item->getExpiration() ? $item->getExpiration()->getTimestamp() : ($createdAt + $this->hardTtlSec);
--+        $softAt = $expiresAt - $this->precomputeSec;
--+        if ($softAt < $createdAt) {
--+            $softAt = $createdAt;
--+        }
--+        return [$createdAt, $softAt];
--+    }
--+
--+    /** Try to return a fresh hit if available. Returns null on miss. */
--+    private function tryFreshHit(ItemInterface $item): ?ValueResultInterface
--+    {
--+        $item->setInvalidationMethod(Invalidation::PRECOMPUTE, $this->precomputeSec);
--+        $value = $item->get();
--+        if ($item->isHit()) {
--+            [$createdAt, $softAt] = $this->timestampsFromItem($item);
--+            $this->metrics?->inc('cache_hit', ['state' => 'fresh']);
--+            return ValueResult::hit($value, $createdAt, $softAt);
--+        }
--+        return null;
--+    }
--+
--+    /** Leader path: compute and save, returning a fresh hit result. */
--+    private function leaderComputeAndSave(KeyInterface $key): ValueResultInterface
--+    {
--+        $loaded = $this->loader->resolve($key);
--+        $this->save($key, $loaded); // sets hard TTL (with jitter) and stores value
--+        $this->metrics?->inc('cache_fill');
--+
--+        // recompute times deterministically after save
--+        $now = time();
--+        $hard = $now + $this->hardTtlSec;
--+        $soft = $hard - $this->precomputeSec;
--+        if ($soft < $now) {
--+            $soft = $now;
--+        }
--+
--+        return ValueResult::hit($loaded, $now, $soft);
--+    }
--+
--+    /** Follower: try to serve stale value while leader holds the lock. */
--+    private function tryFollowerServeStale(KeyInterface $key): ?ValueResultInterface
--+    {
--+        $item = $this->pool->getItem($key->toString());
--         $item->setInvalidationMethod(Invalidation::OLD); // serve previous value if locked by another process
--         $stale = $item->get();
--         if ($stale !== null) {
--@@ -80,8 +121,13 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--             $this->metrics?->inc('cache_hit', ['state' => 'stale']);
--             return ValueResult::stale($stale, $createdAt, $softAt);
--         }
--+        return null;
--+    }
--
---        // b) optional: short wait for leader to finish (CLI/background-safe)
--+    /** Follower: short wait for leader to finish, then try to return fresh. */
--+    private function tryFollowerWaitFresh(KeyInterface $key): ?ValueResultInterface
--+    {
--+        $item = $this->pool->getItem($key->toString());
--         $item->setInvalidationMethod(Invalidation::SLEEP, 150, 6); // 6x150ms = ~900ms max wait
--         $waited = $item->get();
--         if ($item->isHit()) {
--@@ -89,8 +135,12 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--             $this->metrics?->inc('cache_hit', ['state' => 'fresh_after_sleep']);
--             return ValueResult::hit($waited, $createdAt, $softAt);
--         }
--+        return null;
--+    }
--
---        // c) last resort: fail-open compute (do NOT save to avoid double-write), or miss if you prefer fail-closed
--+    /** Last resort: compute fail-open (do not save) or return miss if fail-closed. */
--+    private function failOpenOrMiss(KeyInterface $key): ValueResultInterface
--+    {
--         if ($this->failOpen ?? true) {
--             $fallback = $this->loader->resolve($key);
--             $now = time();
--@@ -104,18 +154,6 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--         return ValueResult::miss();
--     }
--
---    /** Extract createdAt and soft boundary from Stash item. */
---    private function timestampsFromItem(ItemInterface $item): array
---    {
---        $createdAt = $item->getCreation() ? $item->getCreation()->getTimestamp() : time();
---        $expiresAt = $item->getExpiration() ? $item->getExpiration()->getTimestamp() : ($createdAt + $this->hardTtlSec);
---        $softAt = $expiresAt - $this->precomputeSec;
---        if ($softAt < $createdAt) {
---            $softAt = $createdAt;
---        }
---        return [$createdAt, $softAt];
---    }
+---    public function handleInvalidation(InvalidationEvent $event): void
+--+    public function handleInvalidation(AsyncEvent $event): void
+--     {
+---        $key = $event['key'];
+---        $exact = $event['exact'];
+--+        $key = $event->key;
+--+        $exact = $event->exact;
 --
--     public function getMany(iterable $keys): \SplObjectStorage
--     {
--         // naive: iterate; real impl may group and use resolveMany()
--@@ -132,11 +170,23 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--         $this->metrics?->inc('cache_put');
--     }
--
--+    private function save(KeyInterface $key, mixed $value): void
--+    {
--+        $item = $this->pool->getItem($key->toString());
--+        // Stash TTL is hard TTL; add jitter if configured
--+        $hardTtl = $this->jitter?->apply($this->hardTtlSec, $key) ?? $this->hardTtlSec;
--+
--+        // PSR-6: store raw value; Stash keeps creation/expiration internally
--+        $item->set($value);
--+        $item->expiresAfter($hardTtl);
--+        $this->pool->save($item);
--+    }
--+
--     public function invalidate(KeyPrefixInterface|KeyInterface|array $selectors, SyncMode $mode = SyncMode::ASYNC): void
--     {
--         foreach ((array)$selectors as $selector) {
--             if ($mode === SyncMode::ASYNC) {
---                $this->eventDispatcher->dispatch(new InvalidationEvent($selector, $mode, false));
--+                $this->eventDispatcher->dispatch(new AsyncEvent($selector, false));
--                 return;
--             }
--
--@@ -149,7 +199,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--     {
--         foreach ((array)$keys as $key) {
--             if ($mode === SyncMode::ASYNC) {
---                $this->eventDispatcher->dispatch(new InvalidationEvent($key, $mode, true));
--+                $this->eventDispatcher->dispatch(new AsyncEvent($key, true));
--                 return;
--             }
--
--@@ -162,7 +212,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--     {
--         foreach ((array)$keys as $key) {
--             if ($mode === SyncMode::ASYNC) {
---                $this->eventDispatcher->dispatch(new InvalidationEvent($key, $mode, true));
--+                $this->eventDispatcher->dispatch(new AsyncEvent($key));
--                 return;
--             }
--
--@@ -174,16 +224,4 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
--     {
--         return $this->pool;
--     }
+--         if ($exact) {
+--             $this->cache->invalidateExact($key, SyncMode::SYNC);
+--@@ -20,9 +20,9 @@ class AsyncHandler {
+--         }
+--     }
 --
---    private function save(KeyInterface $key, mixed $value): void
---    {
---        $item = $this->pool->getItem($key->toString());
---        // Stash TTL is hard TTL; add jitter if configured
---        $hardTtl = $this->jitter?->apply($this->hardTtlSec, $key) ?? $this->hardTtlSec;
+---    public function handleRefresh(InvalidationEvent $event): void
+--+    public function handleRefresh(AsyncEvent $event): void
+--     {
+---        $key = $event['key'];
+--+        $key = $event->key;
 --
---        // PSR-6: store raw value; Stash keeps creation/expiration internally
---        $item->set($value);
---        $item->expiresAfter($hardTtl);
---        $this->pool->save($item);
---    }
-- }
+--         $this->cache->refresh($key, SyncMode::SYNC);
+--     }
+--diff --git a/src/Cache.php b/src/Cache.php
+--index 8ef47ec..0efe3b3 100644
+----- a/src/Cache.php
+--+++ b/src/Cache.php
+--@@ -18,14 +18,13 @@ use Stash\Invalidation;
+-- class Cache implements CacheInterface, PsrPoolAccessInterface
+-- {
+--     public function __construct(
+---        private StashPoolInterface        $pool,
+---        private LoaderInterface           $loader,
+---        private int                       $hardTtlSec,
+---        private int                       $precomputeSec,         // seconds BEFORE hard TTL to precompute (soft window)
+---        private JitterInterface           $jitter,
+---        private EventDispatcherInterface|null  $eventDispatcher = null,
+--+        private StashPoolInterface            $pool,
+--+        private LoaderInterface               $loader,
+--+        private int                           $hardTtlSec,
+--+        private int                           $precomputeSec,         // seconds BEFORE hard TTL to precompute (soft window)
+--+        private JitterInterface               $jitter,
+--+        private EventDispatcherInterface|null $eventDispatcher = null,
+--         private MetricsInterface|null         $metrics = null,
+---        private \Psr\Log\LoggerInterface|null $logger = null,
+--     )
+--     {
+--         if ($hardTtlSec < 1) throw new \InvalidArgumentException('hardTtlSec must be >= 1');
+--@@ -38,41 +37,83 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--     {
+--         $item = $this->pool->getItem($key->toString());
+--
+---        // 1) precompute: start regeneration pre-expiry; isHit() becomes false inside the soft window
+---        $item->setInvalidationMethod(Invalidation::PRECOMPUTE, $this->precomputeSec);
+---
+---        $value = $item->get();
+---        if ($item->isHit()) {
+---            [$createdAt, $softAt] = $this->timestampsFromItem($item);
+---            $this->metrics?->inc('cache_hit', ['state' => 'fresh']);
+---            return ValueResult::hit($value, $createdAt, $softAt);
+--+        // 1) fast path: fresh hit
+--+        if ($result = $this->tryFreshHit($item)) {
+--+            return $result;
+--         }
+--
+---        // 2) single-flight: try to become the leader
+--+        // 2) single-flight: become the leader and recompute
+--         $won = $item->lock();
+--         if ($won) {
+--             try {
+---                $loaded = $this->loader->resolve($key);
+---                $this->save($key, $loaded); // sets hard TTL (with jitter) and stores value
+---                $this->metrics?->inc('cache_fill');
+---
+---                // recompute times deterministically after save
+---                $now = time();
+---                $hard = $now + $this->hardTtlSec;
+---                $soft = $hard - $this->precomputeSec;
+---                if ($soft < $now) {
+---                    $soft = $now;
+---                }
+---
+---                return ValueResult::hit($loaded, $now, $soft);
+--+                return $this->leaderComputeAndSave($key);
+--             } finally {
+--                 // lock is released when $item is out of scope (Stash frees it with Item lifecycle)
+--                 unset($item);
+--             }
+--         }
+--
+---        // 3) follower path: someone else is rebuilding — serve stale or briefly wait
+---        // a) try to serve STALE while leader holds the lock
+--+        // 3) follower path: serve stale
+--+        if ($result = $this->tryFollowerServeStale($key)) {
+--+            return $result;
+--+        }
+--+
+--+        // 4) follower path: wait for leader to finish
+--+        if ($result = $this->tryFollowerWaitFresh($key)) {
+--+            return $result;
+--+        }
+--+
+--+        // 5) last resort: fail-open compute or miss
+--+        return $this->failOpenOrMiss($key);
+--+    }
+--+
+--+    /** Extract createdAt and soft boundary from Stash item. */
+--+    private function timestampsFromItem(ItemInterface $item): array
+--+    {
+--+        $createdAt = $item->getCreation() ? $item->getCreation()->getTimestamp() : time();
+--+        $expiresAt = $item->getExpiration() ? $item->getExpiration()->getTimestamp() : ($createdAt + $this->hardTtlSec);
+--+        $softAt = $expiresAt - $this->precomputeSec;
+--+        if ($softAt < $createdAt) {
+--+            $softAt = $createdAt;
+--+        }
+--+        return [$createdAt, $softAt];
+--+    }
+--+
+--+    /** Try to return a fresh hit if available. Returns null on miss. */
+--+    private function tryFreshHit(ItemInterface $item): ?ValueResultInterface
+--+    {
+--+        $item->setInvalidationMethod(Invalidation::PRECOMPUTE, $this->precomputeSec);
+--+        $value = $item->get();
+--+        if ($item->isHit()) {
+--+            [$createdAt, $softAt] = $this->timestampsFromItem($item);
+--+            $this->metrics?->inc('cache_hit', ['state' => 'fresh']);
+--+            return ValueResult::hit($value, $createdAt, $softAt);
+--+        }
+--+        return null;
+--+    }
+--+
+--+    /** Leader path: compute and save, returning a fresh hit result. */
+--+    private function leaderComputeAndSave(KeyInterface $key): ValueResultInterface
+--+    {
+--+        $loaded = $this->loader->resolve($key);
+--+        $this->save($key, $loaded); // sets hard TTL (with jitter) and stores value
+--+        $this->metrics?->inc('cache_fill');
+--+
+--+        // recompute times deterministically after save
+--+        $now = time();
+--+        $hard = $now + $this->hardTtlSec;
+--+        $soft = $hard - $this->precomputeSec;
+--+        if ($soft < $now) {
+--+            $soft = $now;
+--+        }
+--+
+--+        return ValueResult::hit($loaded, $now, $soft);
+--+    }
+--+
+--+    /** Follower: try to serve stale value while leader holds the lock. */
+--+    private function tryFollowerServeStale(KeyInterface $key): ?ValueResultInterface
+--+    {
+--+        $item = $this->pool->getItem($key->toString());
+--         $item->setInvalidationMethod(Invalidation::OLD); // serve previous value if locked by another process
+--         $stale = $item->get();
+--         if ($stale !== null) {
+--@@ -80,8 +121,13 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--             $this->metrics?->inc('cache_hit', ['state' => 'stale']);
+--             return ValueResult::stale($stale, $createdAt, $softAt);
+--         }
+--+        return null;
+--+    }
+--
+---        // b) optional: short wait for leader to finish (CLI/background-safe)
+--+    /** Follower: short wait for leader to finish, then try to return fresh. */
+--+    private function tryFollowerWaitFresh(KeyInterface $key): ?ValueResultInterface
+--+    {
+--+        $item = $this->pool->getItem($key->toString());
+--         $item->setInvalidationMethod(Invalidation::SLEEP, 150, 6); // 6x150ms = ~900ms max wait
+--         $waited = $item->get();
+--         if ($item->isHit()) {
+--@@ -89,8 +135,12 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--             $this->metrics?->inc('cache_hit', ['state' => 'fresh_after_sleep']);
+--             return ValueResult::hit($waited, $createdAt, $softAt);
+--         }
+--+        return null;
+--+    }
+--
+---        // c) last resort: fail-open compute (do NOT save to avoid double-write), or miss if you prefer fail-closed
+--+    /** Last resort: compute fail-open (do not save) or return miss if fail-closed. */
+--+    private function failOpenOrMiss(KeyInterface $key): ValueResultInterface
+--+    {
+--         if ($this->failOpen ?? true) {
+--             $fallback = $this->loader->resolve($key);
+--             $now = time();
+--@@ -104,18 +154,6 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--         return ValueResult::miss();
+--     }
+--
+---    /** Extract createdAt and soft boundary from Stash item. */
+---    private function timestampsFromItem(ItemInterface $item): array
+---    {
+---        $createdAt = $item->getCreation() ? $item->getCreation()->getTimestamp() : time();
+---        $expiresAt = $item->getExpiration() ? $item->getExpiration()->getTimestamp() : ($createdAt + $this->hardTtlSec);
+---        $softAt = $expiresAt - $this->precomputeSec;
+---        if ($softAt < $createdAt) {
+---            $softAt = $createdAt;
+---        }
+---        return [$createdAt, $softAt];
+---    }
+---
+--     public function getMany(iterable $keys): \SplObjectStorage
+--     {
+--         // naive: iterate; real impl may group and use resolveMany()
+--@@ -132,11 +170,23 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--         $this->metrics?->inc('cache_put');
+--     }
+--
+--+    private function save(KeyInterface $key, mixed $value): void
+--+    {
+--+        $item = $this->pool->getItem($key->toString());
+--+        // Stash TTL is hard TTL; add jitter if configured
+--+        $hardTtl = $this->jitter?->apply($this->hardTtlSec, $key) ?? $this->hardTtlSec;
+--+
+--+        // PSR-6: store raw value; Stash keeps creation/expiration internally
+--+        $item->set($value);
+--+        $item->expiresAfter($hardTtl);
+--+        $this->pool->save($item);
+--+    }
+--+
+--     public function invalidate(KeyPrefixInterface|KeyInterface|array $selectors, SyncMode $mode = SyncMode::ASYNC): void
+--     {
+--         foreach ((array)$selectors as $selector) {
+--             if ($mode === SyncMode::ASYNC) {
+---                $this->eventDispatcher->dispatch(new InvalidationEvent($selector, $mode, false));
+--+                $this->eventDispatcher->dispatch(new AsyncEvent($selector, false));
+--                 return;
+--             }
+--
+--@@ -149,7 +199,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--     {
+--         foreach ((array)$keys as $key) {
+--             if ($mode === SyncMode::ASYNC) {
+---                $this->eventDispatcher->dispatch(new InvalidationEvent($key, $mode, true));
+--+                $this->eventDispatcher->dispatch(new AsyncEvent($key, true));
+--                 return;
+--             }
+--
+--@@ -162,7 +212,7 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--     {
+--         foreach ((array)$keys as $key) {
+--             if ($mode === SyncMode::ASYNC) {
+---                $this->eventDispatcher->dispatch(new InvalidationEvent($key, $mode, true));
+--+                $this->eventDispatcher->dispatch(new AsyncEvent($key));
+--                 return;
+--             }
+--
+--@@ -174,16 +224,4 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
+--     {
+--         return $this->pool;
+--     }
+---
+---    private function save(KeyInterface $key, mixed $value): void
+---    {
+---        $item = $this->pool->getItem($key->toString());
+---        // Stash TTL is hard TTL; add jitter if configured
+---        $hardTtl = $this->jitter?->apply($this->hardTtlSec, $key) ?? $this->hardTtlSec;
+---
+---        // PSR-6: store raw value; Stash keeps creation/expiration internally
+---        $item->set($value);
+---        $item->expiresAfter($hardTtl);
+---        $this->pool->save($item);
+---    }
+-- }
+-diff --git a/README.md b/README.md
+-index b6cbd14..b5a5fcf 100644
+---- a/README.md
+-+++ b/README.md
+-@@ -1,10 +1,18 @@
+--# Package Name
+-+# Advanced Cache Library
+-
+--A brief description of what this package does.
+-+A high-performance PHP cache library with stale-while-revalidate pattern, async operations, and cache stampede prevention.
+-
+--## Installation
+-+## Features
+-+
+-+- **Stale-while-revalidate**: Serve stale data while computing fresh values in background
+-+- **Cache stampede prevention**: Built-in jitter and leader/follower pattern
+-+- **Async operations**: Non-blocking cache invalidation and refresh
+-+- **Structured keys**: Domain-based cache keys with versioning and localization
+-+- **Redis backend**: Built on top of Stash cache with Redis support
+-+- **Batch operations**: Efficient bulk get/invalidate operations
+-+- **Flexible invalidation**: Exact key or prefix-based invalidation strategies
+-
+--You can install the package via composer:
+-+## Installation
+-
+- ```bash
+- composer require vendor/package-name
+-@@ -15,9 +23,46 @@ composer require vendor/package-name
+- ```php
+- <?php
+-
+--use Vendor\PackageName\YourClass;
+-+use Cache\Cache;
+-+use Cache\Key;
+-+use Cache\CallableLoader;
+-+use Cache\DefaultJitter;
+-+use Stash\Pool;
+-+use Stash\Driver\Redis;
+-+
+-+// Setup Redis and cache
+-+$redis = new \Redis();
+-+$driver = new Redis(['connection' => $redis]);
+-+$pool = new Pool($driver);
+-+
+-+$cache = new Cache(
+-+    $pool,
+-+    new CallableLoader(function($key) { /* your loader logic */ }),
+-+    $hardTtlSec = 3600,      // Hard TTL
+-+    $precomputeSec = 60,     // Precompute window
+-+    new DefaultJitter(15)    // Jitter for stampede prevention
+-+);
+-+
+-+// Create structured cache keys
+-+$key = new Key(
+-+    domain: 'product',
+-+    facet: 'top-sellers',
+-+    id: ['category' => 456, 'price' => 1000],
+-+    version: 2,
+-+    locale: 'en'
+-+);
+-+
+-+// Get cached value
+-+$result = $cache->get($key);
+-+
+-+$cacheProduct->refresh($key); // async by default
+-+
+-+$cacheProduct->put($key, $value);
+-+
+-+$cacheProduct->invalidateExact($key); // invalidate exact key only. do not invalidate hierarchical keys.
+-+
+-+$cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
+-
+--$instance = new YourClass();
+- ```
+-
+- ## Testing
+-diff --git a/src/Example/index.php b/src/Example/index.php
+-index 80913a2..f1fc65f 100644
+---- a/src/Example/index.php
+-+++ b/src/Example/index.php
+-@@ -27,3 +27,11 @@ $version = 2;
+- $locale = 'en';
+- $key = new \Cache\Key($domain, $facet, $id, $version, $locale);
+- $value = $cacheProduct->get($key);
+-+
+-+$cacheProduct->refresh($key); // async by default
+-+
+-+$cacheProduct->put($key, $value);
+-+
+-+$cacheProduct->invalidateExact($key); // invalidate exact key only. do not invalidate hierarchical keys.
+-+
+-+$cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
 diff --git a/README.md b/README.md
-index b6cbd14..b5a5fcf 100644
+index b5a5fcf..05dd627 100644
 --- a/README.md
 +++ b/README.md
-@@ -1,10 +1,18 @@
--# Package Name
-+# Advanced Cache Library
-
--A brief description of what this package does.
-+A high-performance PHP cache library with stale-while-revalidate pattern, async operations, and cache stampede prevention.
-
--## Installation
-+## Features
-+
-+- **Stale-while-revalidate**: Serve stale data while computing fresh values in background
-+- **Cache stampede prevention**: Built-in jitter and leader/follower pattern
-+- **Async operations**: Non-blocking cache invalidation and refresh
-+- **Structured keys**: Domain-based cache keys with versioning and localization
-+- **Redis backend**: Built on top of Stash cache with Redis support
-+- **Batch operations**: Efficient bulk get/invalidate operations
-+- **Flexible invalidation**: Exact key or prefix-based invalidation strategies
-
--You can install the package via composer:
-+## Installation
-
- ```bash
+@@ -18,6 +18,14 @@ A high-performance PHP cache library with stale-while-revalidate pattern, async
  composer require vendor/package-name
-@@ -15,9 +23,46 @@ composer require vendor/package-name
- ```php
- <?php
-
--use Vendor\PackageName\YourClass;
-+use Cache\Cache;
-+use Cache\Key;
-+use Cache\CallableLoader;
-+use Cache\DefaultJitter;
-+use Stash\Pool;
-+use Stash\Driver\Redis;
-+
-+// Setup Redis and cache
-+$redis = new \Redis();
-+$driver = new Redis(['connection' => $redis]);
-+$pool = new Pool($driver);
-+
-+$cache = new Cache(
-+    $pool,
-+    new CallableLoader(function($key) { /* your loader logic */ }),
-+    $hardTtlSec = 3600,      // Hard TTL
-+    $precomputeSec = 60,     // Precompute window
-+    new DefaultJitter(15)    // Jitter for stampede prevention
-+);
-+
-+// Create structured cache keys
-+$key = new Key(
-+    domain: 'product',
-+    facet: 'top-sellers',
-+    id: ['category' => 456, 'price' => 1000],
-+    version: 2,
-+    locale: 'en'
-+);
-+
-+// Get cached value
-+$result = $cache->get($key);
-+
-+$cacheProduct->refresh($key); // async by default
-+
-+$cacheProduct->put($key, $value);
-+
-+$cacheProduct->invalidateExact($key); // invalidate exact key only. do not invalidate hierarchical keys.
-+
-+$cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
-
--$instance = new YourClass();
  ```
 
++## Local Development
++
++```bash
++git clone https://github.com/vatvit/cache-experiments.git
++./setup.sh
++./run-tests.sh
++```
++
+ ## Usage
+
+ ```php
+@@ -68,7 +76,7 @@ $cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
  ## Testing
-diff --git a/src/Example/index.php b/src/Example/index.php
-index 80913a2..f1fc65f 100644
---- a/src/Example/index.php
-+++ b/src/Example/index.php
-@@ -27,3 +27,11 @@ $version = 2;
- $locale = 'en';
- $key = new \Cache\Key($domain, $facet, $id, $version, $locale);
- $value = $cacheProduct->get($key);
-+
-+$cacheProduct->refresh($key); // async by default
-+
-+$cacheProduct->put($key, $value);
-+
-+$cacheProduct->invalidateExact($key); // invalidate exact key only. do not invalidate hierarchical keys.
-+
-+$cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
+
+ ```bash
+-composer test
++./run-tests.sh
+ ```
+
+ ## Contributing

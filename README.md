@@ -18,6 +18,14 @@ A high-performance PHP cache library with stale-while-revalidate pattern, async 
 composer require vendor/package-name
 ```
 
+## Local Development
+
+```bash
+git clone https://github.com/vatvit/cache-experiments.git
+./setup.sh
+./run-tests.sh
+```
+
 ## Usage
 
 ```php
@@ -68,7 +76,7 @@ $cacheProduct->invalidate($key, \Cache\SyncMode::SYNC);
 ## Testing
 
 ```bash
-composer test
+./run-tests.sh
 ```
 
 ## Contributing
