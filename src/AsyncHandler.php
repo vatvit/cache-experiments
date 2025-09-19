@@ -8,10 +8,10 @@ class AsyncHandler {
         private Cache $cache,
     ) {}
 
-    public function handleInvalidation(InvalidationEvent $event): void
+    public function handleInvalidation(AsyncEvent $event): void
     {
-        $key = $event['key'];
-        $exact = $event['exact'];
+        $key = $event->key;
+        $exact = $event->exact;
 
         if ($exact) {
             $this->cache->invalidateExact($key, SyncMode::SYNC);
@@ -20,9 +20,9 @@ class AsyncHandler {
         }
     }
 
-    public function handleRefresh(InvalidationEvent $event): void
+    public function handleRefresh(AsyncEvent $event): void
     {
-        $key = $event['key'];
+        $key = $event->key;
 
         $this->cache->refresh($key, SyncMode::SYNC);
     }

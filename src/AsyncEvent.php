@@ -4,11 +4,10 @@ namespace Cache;
 
 use Cache\Interface\KeyInterface;
 
-class InvalidationEvent extends \stdClass
+class AsyncEvent
 {
     public function __construct(
         public KeyInterface $key,
-        public InvalidateMode $mode,
         public bool $exact = false,
     )
     {
