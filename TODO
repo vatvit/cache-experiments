@@ -1,0 +1,10 @@
+* Fix: Move Soft TTL to an Item level from Configuration.
+* Feature: Add loader retry mechanism on Failure.
+* Feature: Move configuration to an Object (e.g. Policy)
+* Feature: Add support for multiple loaders per Key pattern.
+* Feature: Add ASYNC idempotency support. Add ASYNC message version checking.
+* Feature: Add throttling support on Fails-open scenarios.
+* Metric: Add metric for cache size.
+* Feature: Add flexible/long Key strings support.
+* Metric: Add metric how fast the Loader is. (configurable)
+* Feature: Fallback keys (IN locale -> EN locale -> default)
