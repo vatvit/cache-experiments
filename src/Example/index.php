@@ -11,7 +11,6 @@ $stashPool->setItemClass(\Cache\MyItem::class);
 
 $cacheProduct = new \Cache\Cache(
     $stashPool,
-    /** Minimal async publisher contract (wire to RabbitMQ/Kafka/SQS, etc.). */
     new CallableLoader(function ($key) {}),
     $hardTtlSec = 3600,
     $precomputeSec = 60,         // seconds BEFORE hard TTL to precompute (soft window)

@@ -8,3 +8,6 @@
 * Feature: Add flexible/long Key strings support.
 * Metric: Add metric how fast the Loader is. (configurable)
 * Feature: Fallback keys (IN locale -> EN locale -> default)
+* Fix: make hierarchical invalidation as a configurable option.
+* Fix: add Key groups
+

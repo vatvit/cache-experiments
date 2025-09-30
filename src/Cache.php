@@ -154,16 +154,6 @@ class Cache implements CacheInterface, PsrPoolAccessInterface
         return ValueResult::miss();
     }
 
-    public function getMany(iterable $keys): \SplObjectStorage
-    {
-        // naive: iterate; real impl may group and use resolveMany()
-        $map = new \SplObjectStorage();
-        foreach ($keys as $k) {
-            $map[$k] = $this->get($k);
-        }
-        return $map;
-    }
-
     public function put(KeyInterface $key, mixed $value): void
     {
         $this->save($key, $value);

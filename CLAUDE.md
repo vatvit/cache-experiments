@@ -11,8 +11,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Testing
 ```bash
-./run-tests.sh       # Run PHPUnit tests in Docker container
-composer test        # Alternative: run tests directly via Composer script
+./run-tests.sh                    # Run PHPUnit tests in Docker container
+composer test                     # Alternative: run tests directly via Composer script
+vendor/bin/phpunit                # Run tests directly (requires local PHP 8.4)
+vendor/bin/phpunit tests/SpecificTest.php  # Run a specific test file
 ```
 
 ### Dependencies
@@ -46,6 +48,16 @@ This is a high-performance PHP cache library implementing the **stale-while-reva
    - `LoaderInterface` - Data loading strategy
    - `JitterInterface` - Stampede prevention via randomized TTLs
    - `MetricsInterface` - Performance monitoring
+   - `KeyInterface` & `KeyPrefixInterface` - Cache key contracts
+   - `ValueResultInterface` - Cache result wrapper
+   - `PsrPoolAccessInterface` - PSR cache pool access
+
+5. **Support Components** - Helper classes and utilities
+   - `CallableLoader.php` - Simple function-based data loader
+   - `DefaultJitter.php` - Standard jitter implementation
+   - `CacheReadState.php` - Cache state enumeration
+   - `ValueResult.php` - Result wrapper with metadata
+   - `MyRedisDriver.php` & `MyItem.php` - Custom Stash implementations
 
 ### Cache Behavior
 
@@ -67,15 +79,20 @@ The cache implements a sophisticated multi-tier access pattern:
 ### Configuration Notes
 
 - Uses Docker for consistent PHP 8.4 environment
-- No tests directory currently exists - tests may need to be created
+- Tests directory exists with PHPUnit configuration in `phpunit.xml`
 - Example usage available in `src/Example/index.php`
-- Project uses Composer autoloading with PSR-4 standard
+- Project uses Composer autoloading with PSR-4 standard (`Cache\` namespace)
+- Comprehensive architecture documentation in `ARCHITECTURAL_ANALYSIS.md`
+- Project is currently in prototype/MVP phase, see analysis document for production roadmap
 
 ### Development Patterns
 
 When working with this codebase:
-- All cache operations should use structured `Key` objects
+- All cache operations should use structured `Key` objects with domain/facet/id hierarchy
 - Prefer async operations for invalidation/refresh to avoid blocking
 - Use the jitter system to prevent cache stampedes
-- Implement `LoaderInterface` for custom data sources
+- Implement `LoaderInterface` for custom data sources (see `CallableLoader` for simple cases)
 - Follow the existing interface contracts for extensibility
+- Use `src/Example/index.php` as reference for basic usage patterns
+- Test cache behavior with Docker environment to ensure PHP 8.4 compatibility
+- Reference `ARCHITECTURAL_ANALYSIS.md` for deeper understanding of cache theory and implementation
